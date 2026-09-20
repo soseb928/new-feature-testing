@@ -60,18 +60,33 @@ local function connectHealth(obj,kind,fn)
     if attr then return obj:GetAttributeChangedSignal(attr):Connect(function() fn(obj:GetAttribute(attr)) end) end
 end
 
+local function hasHealthIndicator(inst)
+    if not inst then return false end
+    for _,d in ipairs(inst:GetDescendants()) do
+        local n=d.Name:lower()
+        if (d:IsA("BillboardGui") or d:IsA("SurfaceGui") or d:IsA("Frame") or d:IsA("TextLabel") or d:IsA("TextButton")) and (n:find("health") or n:find("hp") or n:find("healthbar") or n:find("health_bar")) then
+            return true
+        end
+    end
+    return false
+end
+
 local function getTargets()
     local out,seen={},{}
+    local char=LP.Character
+    local charRoot=getRoot(char)
     local function add(inst)
         local model=resolveCandidate(inst)
-        if not model or model==LP.Character or seen[model] then return end
+        if not model or model==char or seen[model] then return end
         local root=getRoot(model)
         if not root then return end
         local source,kind=getHealthSource(model)
         local hp=readHealth(source,kind)
         local name=candidateName(inst)
         local named=name:find("punch") or name:find("bag") or name:find("dummy") or name:find("training") or name:find("target")
-        if hp and hp>0 or named then
+        local indicator=hasHealthIndicator(model)
+        local nearby=charRoot and (root.Position-charRoot.Position).Magnitude<=150
+        if (hp and hp>0) or named or indicator or (nearby and model:IsA("Model") and #model:GetChildren()>=2 and root:IsA("BasePart")) then
             seen[model]=true
             table.insert(out,model)
         end
@@ -156,7 +171,7 @@ function S.DestroyUI() if S.ui and S.ui.gui then S.ui.gui:Destroy() end; S.ui=ni
 function S.CreateUI()
     S.DestroyUI()
     local gui=Instance.new("ScreenGui"); gui.Name="AwakenedLimitlessScanner"; gui.ResetOnSpawn=false; gui.Parent=LP:WaitForChild("PlayerGui")
-    local frame=Instance.new("Frame"); frame.Size=UDim2.fromOffset(460,560); frame.Position=UDim2.new(.5,-230,.5,-280); frame.BackgroundTransparency=.08; frame.Parent=gui
+    local frame=Instance.new("Frame"); frame.Size=UDim2.fromOffset(460,610); frame.Position=UDim2.new(.5,-230,.5,-305); frame.BackgroundTransparency=.08; frame.Parent=gui
     local corner=Instance.new("UICorner"); corner.CornerRadius=UDim.new(0,8); corner.Parent=frame
     local title=Instance.new("TextLabel"); title.Size=UDim2.new(1,-20,0,30); title.Position=UDim2.fromOffset(10,7); title.BackgroundTransparency=1; title.Text="Awakened Limitless Damage Scanner"; title.TextSize=18; title.Font=Enum.Font.GothamBold; title.Parent=frame
     local status=Instance.new("TextLabel"); status.Size=UDim2.new(1,-20,0,20); status.Position=UDim2.fromOffset(10,39); status.BackgroundTransparency=1; status.Text="Status: STOPPED"; status.TextXAlignment=Enum.TextXAlignment.Left; status.Parent=frame
@@ -173,7 +188,7 @@ function S.CreateUI()
         end
         for _,m in ipairs(targets) do
             local source,kind=getHealthSource(m); local hp=readHealth(source,kind)
-            local healthText=kind and string.format("%s | HP %.0f",kind,hp or 0) or "HP source unknown"
+            local healthText=kind and string.format("%s | HP %.0f",kind,hp or 0) or (hasHealthIndicator(m) and "health indicator found" or "HP source unknown")
             local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-6,0,28); b.Text=string.format("%s  [%s]",m.Name,healthText); b.TextSize=11; b.Font=Enum.Font.Gotham; b.Parent=list
             b.MouseButton1Click:Connect(function()
                 S.selected=m; targetLabel.Text="Target: "..m:GetFullName(); log("Selected "..m:GetFullName())
@@ -183,6 +198,37 @@ function S.CreateUI()
     end
 
     local refreshButton=Instance.new("TextButton"); refreshButton.Size=UDim2.fromOffset(140,30); refreshButton.Position=UDim2.fromOffset(10,275); refreshButton.Text="Refresh Targets"; refreshButton.Parent=frame; refreshButton.MouseButton1Click:Connect(refresh)
+    local debugButton=Instance.new("TextButton"); debugButton.Size=UDim2.fromOffset(140,30); debugButton.Position=UDim2.fromOffset(10,345); debugButton.Text="Debug Nearby"; debugButton.Parent=frame; debugButton.MouseButton1Click:Connect(function()
+        local c=LP.Character; local r=getRoot(c)
+        if not r then log("No local character root") return end
+        local rows={}
+        for _,m in ipairs(workspace:GetDescendants()) do
+            if m:IsA("Model") and m~=c then
+                local mr=getRoot(m)
+                if mr then
+                    local d=(mr.Position-r.Position).Magnitude
+                    if d<=100 then
+                        local src,k=getHealthSource(m)
+                        local hp=readHealth(src,k)
+                        local attrs=m:GetAttributes()
+                        local attrNames={}
+                        for an,av in pairs(attrs) do table.insert(attrNames,an.."="..tostring(av)) end
+                        local marks={}
+                        if src then table.insert(marks,k.."="..tostring(hp)) end
+                        if hasHealthIndicator(m) then table.insert(marks,"HealthUI") end
+                        local low=m:GetFullName():lower()
+                        if low:find("punch") or low:find("bag") or low:find("dummy") or low:find("training") or low:find("target") then table.insert(marks,"NAME_MATCH") end
+                        table.insert(rows,string.format("%.1f | %s | %s | attrs:%s",d,m:GetFullName(),table.concat(marks,","),#attrNames>0 and table.concat(attrNames,",") or "-"))
+                    end
+                end
+            end
+        end
+        table.sort(rows)
+        print("[AwkScanner] ===== DEBUG NEARBY (100 studs) =====")
+        for i=1,math.min(#rows,80) do print("[AwkScanner] "..rows[i]) end
+        print("[AwkScanner] ===== END DEBUG ("..#rows.." models) =====")
+        log("Debug printed "..#rows.." nearby models to Output")
+    end)
     local nearest=Instance.new("TextButton"); nearest.Size=UDim2.fromOffset(140,30); nearest.Position=UDim2.fromOffset(160,275); nearest.Text="Nearest Target"; nearest.Parent=frame; nearest.MouseButton1Click:Connect(function()
         local c=LP.Character; local r=c and getRoot(c); local best,dist,bestPriority
         if r then
@@ -201,18 +247,18 @@ function S.CreateUI()
         if best then S.selected=best; targetLabel.Text="Target: "..best:GetFullName(); log("Selected nearest "..best:GetFullName()) else log("No target found") end
     end)
     local start=Instance.new("TextButton"); start.Size=UDim2.fromOffset(140,30); start.Position=UDim2.fromOffset(310,275); start.Text="START"; start.Parent=frame; start.MouseButton1Click:Connect(function() if S.Start(S.selected) then status.Text="Status: MONITORING" end end)
-    local stop=Instance.new("TextButton"); stop.Size=UDim2.fromOffset(140,30); stop.Position=UDim2.fromOffset(10,310); stop.Text="STOP"; stop.Parent=frame; stop.MouseButton1Click:Connect(function() S.Stop(); status.Text="Status: STOPPED" end)
-    local clear=Instance.new("TextButton"); clear.Size=UDim2.fromOffset(140,30); clear.Position=UDim2.fromOffset(160,310); clear.Text="Clear Log"; clear.Parent=frame; clear.MouseButton1Click:Connect(function() S.Clear() end)
-    local summary=Instance.new("TextButton"); summary.Size=UDim2.fromOffset(140,30); summary.Position=UDim2.fromOffset(310,310); summary.Text="Print Summary"; summary.Parent=frame; summary.MouseButton1Click:Connect(function() S.Summary() end)
+    local stop=Instance.new("TextButton"); stop.Size=UDim2.fromOffset(140,30); stop.Position=UDim2.fromOffset(160,345); stop.Text="STOP"; stop.Parent=frame; stop.MouseButton1Click:Connect(function() S.Stop(); status.Text="Status: STOPPED" end)
+    local clear=Instance.new("TextButton"); clear.Size=UDim2.fromOffset(140,30); clear.Position=UDim2.fromOffset(310,345); clear.Text="Clear Log"; clear.Parent=frame; clear.MouseButton1Click:Connect(function() S.Clear() end)
+    local summary=Instance.new("TextButton"); summary.Size=UDim2.fromOffset(140,30); summary.Position=UDim2.fromOffset(10,380); summary.Text="Print Summary"; summary.Parent=frame; summary.MouseButton1Click:Connect(function() S.Summary() end)
 
-    local skillLabel=Instance.new("TextLabel"); skillLabel.Size=UDim2.new(1,-20,0,20); skillLabel.Position=UDim2.fromOffset(10,348); skillLabel.BackgroundTransparency=1; skillLabel.Text="Mark skill before testing:"; skillLabel.TextXAlignment=Enum.TextXAlignment.Left; skillLabel.Parent=frame
-    local skillList=Instance.new("ScrollingFrame"); skillList.Size=UDim2.new(1,-20,0,125); skillList.Position=UDim2.fromOffset(10,372); skillList.BackgroundTransparency=.2; skillList.ScrollBarThickness=6; skillList.Parent=frame
+    local skillLabel=Instance.new("TextLabel"); skillLabel.Size=UDim2.new(1,-20,0,20); skillLabel.Position=UDim2.fromOffset(10,415); skillLabel.BackgroundTransparency=1; skillLabel.Text="Mark skill before testing:"; skillLabel.TextXAlignment=Enum.TextXAlignment.Left; skillLabel.Parent=frame
+    local skillList=Instance.new("ScrollingFrame"); skillList.Size=UDim2.new(1,-20,0,95); skillList.Position=UDim2.fromOffset(10,440); skillList.BackgroundTransparency=.2; skillList.ScrollBarThickness=6; skillList.Parent=frame
     local sl=Instance.new("UIListLayout"); sl.Padding=UDim.new(0,3); sl.Parent=skillList
     for _,move in ipairs(MOVES) do
         local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-6,0,26); b.Text=move; b.TextSize=11; b.Font=Enum.Font.Gotham; b.Parent=skillList; b.MouseButton1Click:Connect(function() S.Mark(move) end)
     end
     skillList.CanvasSize=UDim2.fromOffset(0,sl.AbsoluteContentSize.Y+5)
-    local logLabel=Instance.new("TextLabel"); logLabel.Size=UDim2.new(1,-20,0,40); logLabel.Position=UDim2.fromOffset(10,500); logLabel.BackgroundTransparency=1; logLabel.Text="Refresh targets. Nearest prioritizes Punch/Bag/Dummy/Training/Target names."; logLabel.TextWrapped=true; logLabel.TextXAlignment=Enum.TextXAlignment.Left; logLabel.TextSize=11; logLabel.Parent=frame
+    local logLabel=Instance.new("TextLabel"); logLabel.Size=UDim2.new(1,-20,0,40); logLabel.Position=UDim2.fromOffset(10,545); logLabel.BackgroundTransparency=1; logLabel.Text="Refresh targets. Nearest prioritizes Punch/Bag/Dummy/Training/Target names."; logLabel.TextWrapped=true; logLabel.TextXAlignment=Enum.TextXAlignment.Left; logLabel.TextSize=11; logLabel.Parent=frame
     S.ui={gui=gui,status=status,log=logLabel}; refresh(); return gui
 end
 
