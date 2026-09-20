@@ -10,8 +10,30 @@ local function getHumanoid(m)
     return m and m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") or nil
 end
 local function getRoot(m)
-    return m and (m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart"))
+    if not m then return nil end
+    local direct=m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart
+    if direct and direct:IsA("BasePart") then return direct end
+    return m:FindFirstChildWhichIsA("BasePart",true)
 end
+
+local function resolveCandidate(inst)
+    if not inst then return nil end
+    if inst:IsA("Model") then return inst end
+    local model=inst:FindFirstAncestorOfClass("Model")
+    return model or inst
+end
+
+local function candidateName(inst)
+    local parts={}
+    local cur=inst
+    for _=1,4 do
+        if not cur then break end
+        table.insert(parts,cur.Name:lower())
+        cur=cur.Parent
+    end
+    return table.concat(parts,"/")
+end
+
 local function getHealthSource(m)
     local h=getHumanoid(m)
     if h then return h,"Humanoid" end
@@ -40,19 +62,32 @@ end
 
 local function getTargets()
     local out,seen={},{}
+    local function add(inst)
+        local model=resolveCandidate(inst)
+        if not model or model==LP.Character or seen[model] then return end
+        local root=getRoot(model)
+        if not root then return end
+        local source,kind=getHealthSource(model)
+        local hp=readHealth(source,kind)
+        local name=candidateName(inst)
+        local named=name:find("punch") or name:find("bag") or name:find("dummy") or name:find("training") or name:find("target")
+        if hp and hp>0 or named then
+            seen[model]=true
+            table.insert(out,model)
+        end
+    end
+
     for _,d in ipairs(workspace:GetDescendants()) do
-        if d:IsA("Model") and d~=LP.Character and not seen[d] then
-            local root=getRoot(d)
-            local source,kind=getHealthSource(d)
-            local hp=readHealth(source,kind)
-            -- Include models with a physical root even when their HP is stored
-            -- somewhere else; this lets the user select custom training bags/dummies.
-            if root and ((hp and hp>0) or (d.Name:lower():find("punch") or d.Name:lower():find("bag") or d.Name:lower():find("dummy") or d.Name:lower():find("training") or d.Name:lower():find("target"))) then
-                seen[d]=true
-                table.insert(out,d)
+        if d:IsA("Model") then
+            add(d)
+        elseif d:IsA("BasePart") then
+            local n=candidateName(d)
+            if n:find("punch") or n:find("bag") or n:find("dummy") or n:find("training") or n:find("target") then
+                add(d)
             end
         end
     end
+
     table.sort(out,function(a,b)
         local an=a:GetFullName():lower(); local bn=b:GetFullName():lower()
         local function score(n)
@@ -149,10 +184,9 @@ function S.CreateUI()
 
     local refresh=Instance.new("TextButton"); refresh.Size=UDim2.fromOffset(140,30); refresh.Position=UDim2.fromOffset(10,275); refresh.Text="Refresh Targets"; refresh.Parent=frame; refresh.MouseButton1Click:Connect(refresh)
     local nearest=Instance.new("TextButton"); nearest.Size=UDim2.fromOffset(140,30); nearest.Position=UDim2.fromOffset(160,275); nearest.Text="Nearest Target"; nearest.Parent=frame; nearest.MouseButton1Click:Connect(function()
-        local c=LP.Character; local r=c and getRoot(c); local best,dist
+        local c=LP.Character; local r=c and getRoot(c); local best,dist,bestPriority
         if r then
-            local candidates=getTargets()
-            for _,m in ipairs(candidates) do
+            for _,m in ipairs(getTargets()) do
                 local p=getRoot(m)
                 if p then
                     local d=(p.Position-r.Position).Magnitude
