@@ -182,7 +182,7 @@ function S.CreateUI()
         list.CanvasSize=UDim2.fromOffset(0,layout.AbsoluteContentSize.Y+5)
     end
 
-    local refresh=Instance.new("TextButton"); refresh.Size=UDim2.fromOffset(140,30); refresh.Position=UDim2.fromOffset(10,275); refresh.Text="Refresh Targets"; refresh.Parent=frame; refresh.MouseButton1Click:Connect(refresh)
+    local refreshButton=Instance.new("TextButton"); refreshButton.Size=UDim2.fromOffset(140,30); refreshButton.Position=UDim2.fromOffset(10,275); refreshButton.Text="Refresh Targets"; refreshButton.Parent=frame; refreshButton.MouseButton1Click:Connect(refresh)
     local nearest=Instance.new("TextButton"); nearest.Size=UDim2.fromOffset(140,30); nearest.Position=UDim2.fromOffset(160,275); nearest.Text="Nearest Target"; nearest.Parent=frame; nearest.MouseButton1Click:Connect(function()
         local c=LP.Character; local r=c and getRoot(c); local best,dist,bestPriority
         if r then
