@@ -11,8 +11,14 @@ local function getHumanoid(m)
 end
 local function getRoot(m)
     if not m then return nil end
-    local direct=m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart
+    if m:IsA("BasePart") then return m end
+    if not m:IsA("Model") then
+        return m:FindFirstChildWhichIsA("BasePart",true)
+    end
+    local direct=m:FindFirstChild("HumanoidRootPart")
     if direct and direct:IsA("BasePart") then return direct end
+    local primary=m.PrimaryPart
+    if primary and primary:IsA("BasePart") then return primary end
     return m:FindFirstChildWhichIsA("BasePart",true)
 end
 
