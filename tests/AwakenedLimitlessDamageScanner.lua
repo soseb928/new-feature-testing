@@ -42,14 +42,14 @@ local function getTargets()
     local out,seen={},{}
     for _,d in ipairs(workspace:GetDescendants()) do
         if d:IsA("Model") and d~=LP.Character and not seen[d] then
-            local source,kind=getHealthSource(d)
             local root=getRoot(d)
-            if source and kind and root then
-                local hp=readHealth(source,kind)
-                if hp and hp>0 then
-                    seen[d]=true
-                    table.insert(out,d)
-                end
+            local source,kind=getHealthSource(d)
+            local hp=readHealth(source,kind)
+            -- Include models with a physical root even when their HP is stored
+            -- somewhere else; this lets the user select custom training bags/dummies.
+            if root and ((hp and hp>0) or (d.Name:lower():find("punch") or d.Name:lower():find("bag") or d.Name:lower():find("dummy") or d.Name:lower():find("training") or d.Name:lower():find("target"))) then
+                seen[d]=true
+                table.insert(out,d)
             end
         end
     end
@@ -134,11 +134,12 @@ function S.CreateUI()
         for _,c in ipairs(list:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
         local targets=getTargets()
         if #targets==0 then
-            local l=Instance.new("TextLabel"); l.Size=UDim2.new(1,-6,0,28); l.Text="No supported health targets found"; l.Parent=list
+            local l=Instance.new("TextLabel"); l.Size=UDim2.new(1,-6,0,28); l.Text="No candidate targets found"; l.Parent=list
         end
         for _,m in ipairs(targets) do
             local source,kind=getHealthSource(m); local hp=readHealth(source,kind)
-            local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-6,0,28); b.Text=string.format("%s  [%s | HP %.0f]",m.Name,kind,hp or 0); b.TextSize=11; b.Font=Enum.Font.Gotham; b.Parent=list
+            local healthText=kind and string.format("%s | HP %.0f",kind,hp or 0) or "HP source unknown"
+            local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-6,0,28); b.Text=string.format("%s  [%s]",m.Name,healthText); b.TextSize=11; b.Font=Enum.Font.Gotham; b.Parent=list
             b.MouseButton1Click:Connect(function()
                 S.selected=m; targetLabel.Text="Target: "..m:GetFullName(); log("Selected "..m:GetFullName())
             end)
@@ -149,7 +150,20 @@ function S.CreateUI()
     local refresh=Instance.new("TextButton"); refresh.Size=UDim2.fromOffset(140,30); refresh.Position=UDim2.fromOffset(10,275); refresh.Text="Refresh Targets"; refresh.Parent=frame; refresh.MouseButton1Click:Connect(refresh)
     local nearest=Instance.new("TextButton"); nearest.Size=UDim2.fromOffset(140,30); nearest.Position=UDim2.fromOffset(160,275); nearest.Text="Nearest Target"; nearest.Parent=frame; nearest.MouseButton1Click:Connect(function()
         local c=LP.Character; local r=c and getRoot(c); local best,dist
-        if r then for _,m in ipairs(getTargets()) do local p=getRoot(m); if p then local d=(p.Position-r.Position).Magnitude; if not dist or d<dist then best,dist=m,d end end end end
+        if r then
+            local candidates=getTargets()
+            for _,m in ipairs(candidates) do
+                local p=getRoot(m)
+                if p then
+                    local d=(p.Position-r.Position).Magnitude
+                    local n=m:GetFullName():lower()
+                    local priority=(n:find("punch") or n:find("bag") or n:find("dummy") or n:find("training") or n:find("target")) and 0 or 1
+                    if not best or priority < (bestPriority or 2) or (priority==(bestPriority or 2) and d<dist) then
+                        best,bestPriority,dist=m,priority,d
+                    end
+                end
+            end
+        end
         if best then S.selected=best; targetLabel.Text="Target: "..best:GetFullName(); log("Selected nearest "..best:GetFullName()) else log("No target found") end
     end)
     local start=Instance.new("TextButton"); start.Size=UDim2.fromOffset(140,30); start.Position=UDim2.fromOffset(310,275); start.Text="START"; start.Parent=frame; start.MouseButton1Click:Connect(function() if S.Start(S.selected) then status.Text="Status: MONITORING" end end)
@@ -164,7 +178,7 @@ function S.CreateUI()
         local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-6,0,26); b.Text=move; b.TextSize=11; b.Font=Enum.Font.Gotham; b.Parent=skillList; b.MouseButton1Click:Connect(function() S.Mark(move) end)
     end
     skillList.CanvasSize=UDim2.fromOffset(0,sl.AbsoluteContentSize.Y+5)
-    local logLabel=Instance.new("TextLabel"); logLabel.Size=UDim2.new(1,-20,0,40); logLabel.Position=UDim2.fromOffset(10,500); logLabel.BackgroundTransparency=1; logLabel.Text="Refresh targets, select the punching bag, START, then mark a skill."; logLabel.TextWrapped=true; logLabel.TextXAlignment=Enum.TextXAlignment.Left; logLabel.TextSize=11; logLabel.Parent=frame
+    local logLabel=Instance.new("TextLabel"); logLabel.Size=UDim2.new(1,-20,0,40); logLabel.Position=UDim2.fromOffset(10,500); logLabel.BackgroundTransparency=1; logLabel.Text="Refresh targets. Nearest prioritizes Punch/Bag/Dummy/Training/Target names."; logLabel.TextWrapped=true; logLabel.TextXAlignment=Enum.TextXAlignment.Left; logLabel.TextSize=11; logLabel.Parent=frame
     S.ui={gui=gui,status=status,log=logLabel}; refresh(); return gui
 end
 
