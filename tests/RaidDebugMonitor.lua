@@ -10,8 +10,9 @@ local S = {
     gui = nil,
     logs = {},
     last = {},
+    connections = {},
     interval = 0.5,
-    maxLogs = 200,
+    maxLogs = 300,
 }
 
 local RAID_DEFS = {
@@ -196,6 +197,53 @@ local function snapshot()
     return rows, textBlob
 end
 
+local function describeValue(v, depth)
+    depth = depth or 0
+    if depth > 2 then return "<depth>" end
+    local tv = typeof(v)
+    if tv == "Instance" then return v:GetFullName() .. " [" .. v.ClassName .. "]" end
+    if type(v) ~= "table" then return tostring(v) end
+    local parts = {}
+    for k,val in pairs(v) do
+        if #parts >= 20 then table.insert(parts,"...") break end
+        table.insert(parts, tostring(k).."="..describeValue(val, depth+1))
+    end
+    table.sort(parts)
+    return "{"..table.concat(parts,", ").."}"
+end
+
+local function watchRemoteEvents()
+    for _,con in ipairs(S.connections) do pcall(function() con:Disconnect() end) end
+    table.clear(S.connections)
+    local net=RepStorage:FindFirstChild("NetworkComm")
+    if not net then emit("NetworkComm missing") return end
+    local wanted = {
+        "IslandCreated_Signal","IslandDataChanged_Signal","IslandEnded_Signal",
+        "IslandRemoved_Signal","IslandRemoved_Signal","IslandAdded_Signal",
+        "RaidBossSpawned_Signal","RaidEnded_Signal","ReturnToMain_Signal",
+        "Ready_Signal","RetryRaid_Method","ReturnToLobby_Method",
+        "LoadRaid_Method","RetryRaid_Method"
+    }
+    local wantedSet={}
+    for _,n in ipairs(wanted) do wantedSet[n]=true end
+
+    local function attach(obj)
+        if not wantedSet[obj.Name] then return end
+        if obj:IsA("RemoteEvent") then
+            local con=obj.OnClientEvent:Connect(function(...)
+                local args={...}
+                local parts={}
+                for i,v in ipairs(args) do parts[i]=describeValue(v) end
+                emit("EVENT "..obj:GetFullName().." | "..table.concat(parts," | "))
+            end)
+            table.insert(S.connections,con)
+            emit("WATCHING "..obj:GetFullName())
+        end
+    end
+
+    for _,d in ipairs(net:GetDescendants()) do attach(d) end
+end
+
 local function emit(msg)
     print("[RaidDebug] " .. tostring(msg))
     table.insert(S.logs, os.date("%H:%M:%S") .. " | " .. tostring(msg))
@@ -228,6 +276,7 @@ end
 function S.Start()
     if S.running then return end
     S.running = true
+    watchRemoteEvents()
     emit("Monitor started")
     S.thread = task.spawn(function()
         while S.running do
@@ -243,6 +292,8 @@ end
 
 function S.Stop()
     S.running = false
+    for _,con in ipairs(S.connections) do pcall(function() con:Disconnect() end) end
+    table.clear(S.connections)
     emit("Monitor stopped")
 end
 
