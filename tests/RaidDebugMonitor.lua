@@ -1,5 +1,6 @@
 -- NexusPlay Raid Debug Monitor
 -- TEST ONLY: observes raid state. Does NOT start raids, invoke retry, teleport, or modify remotes.
+
 local Players = game:GetService("Players")
 local RepStorage = game:GetService("ReplicatedStorage")
 local LP = Players.LocalPlayer
@@ -32,6 +33,15 @@ local RAID_DEFS = {
 
 local function low(v)
     return string.lower(tostring(v or ""))
+end
+
+local function emit(msg)
+    print("[RaidDebug] " .. tostring(msg))
+    table.insert(S.logs, os.date("%H:%M:%S") .. " | " .. tostring(msg))
+    if #S.logs > S.maxLogs then table.remove(S.logs, 1) end
+    if S.gui and S.gui.log then
+        S.gui.log.Text = table.concat(S.logs, "\n")
+    end
 end
 
 local function rootOf(x)
@@ -92,7 +102,10 @@ local function readTextFields(inst)
             local t = d.Text
             if t and t ~= "" then
                 local n = low(d.Name)
-                if n:find("duration") or n:find("player") or n:find("count") or n:find("status") or n:find("timer") or low(t):find("starting") or low(t):find("second") or low(t):find("retry") then
+                if n:find("duration") or n:find("player") or n:find("count")
+                    or n:find("status") or n:find("timer")
+                    or low(t):find("starting") or low(t):find("second")
+                    or low(t):find("retry") then
                     table.insert(rows, d.Name .. "=" .. tostring(t))
                 end
             end
@@ -121,15 +134,12 @@ local function findBosses()
             if matched then
                 local r = rootOf(d)
                 local hum = d:FindFirstChildOfClass("Humanoid")
-                local hp = hum and hum.Health or nil
-                local maxhp = hum and hum.MaxHealth or nil
-                local dist = (me and r) and (r.Position - me.Position).Magnitude or nil
                 table.insert(out, {
                     raid=matched,
                     path=d:GetFullName(),
-                    hp=hp,
-                    maxhp=maxhp,
-                    dist=dist,
+                    hp=hum and hum.Health or nil,
+                    maxhp=hum and hum.MaxHealth or nil,
+                    dist=(me and r) and (r.Position - me.Position).Magnitude or nil,
                 })
             end
         end
@@ -142,19 +152,15 @@ end
 
 local function inspectRaidRemotes()
     local results = {}
-    local services = {
-        "BossIslandService",
-        "RaidsService",
-    }
-    for _, serviceName in ipairs(services) do
-        local service = Net and nil
-        local folder = RepStorage:FindFirstChild("NetworkComm")
+    local folder = RepStorage:FindFirstChild("NetworkComm")
+    for _, serviceName in ipairs({"BossIslandService","RaidsService"}) do
         local obj = folder and folder:FindFirstChild(serviceName)
         if obj then
             table.insert(results, serviceName .. " found")
             for _, d in ipairs(obj:GetChildren()) do
                 local n = low(d.Name)
-                if n:find("raid") or n:find("retry") or n:find("ready") or n:find("island") or n:find("return") then
+                if n:find("raid") or n:find("retry") or n:find("ready")
+                    or n:find("island") or n:find("return") then
                     table.insert(results, "  " .. d.Name .. " [" .. d.ClassName .. "]")
                 end
             end
@@ -167,89 +173,97 @@ end
 
 local function snapshot()
     local rows = {}
-    local place = game.PlaceId
     local q = getQueueMatches()
     local bosses = findBosses()
 
-    table.insert(rows, "PlaceId=" .. tostring(place))
+    table.insert(rows, "PlaceId=" .. tostring(game.PlaceId))
     table.insert(rows, "PlaceName=" .. tostring(game.Name))
     table.insert(rows, "QueueZones=" .. tostring(#q))
+
     for _, x in ipairs(q) do
-        local texts = readTextFields(x.inst)
         table.insert(rows, "QUEUE " .. x.def.name .. " -> " .. fullName(x.inst))
-        if #texts > 0 then
-            for _, t in ipairs(texts) do table.insert(rows, "  " .. t) end
+        for _, t in ipairs(readTextFields(x.inst)) do
+            table.insert(rows, "  " .. t)
         end
     end
 
     table.insert(rows, "BossMatches=" .. tostring(#bosses))
     for _, b in ipairs(bosses) do
-        table.insert(rows, string.format("BOSS %s | %.1f/%.1f | dist=%s | %s",
+        table.insert(rows, string.format(
+            "BOSS %s | %.1f/%.1f | dist=%s | %s",
             b.raid, b.hp or -1, b.maxhp or -1,
             b.dist and string.format("%.1f", b.dist) or "-",
-            b.path))
+            b.path
+        ))
     end
 
-    local remotes = inspectRaidRemotes()
-    for _, r in ipairs(remotes) do table.insert(rows, "REMOTE " .. r) end
+    for _, r in ipairs(inspectRaidRemotes()) do
+        table.insert(rows, "REMOTE " .. r)
+    end
 
-    local textBlob = table.concat(rows, "\n")
-    return rows, textBlob
+    return rows, table.concat(rows, "\n")
 end
 
 local function describeValue(v, depth)
     depth = depth or 0
     if depth > 2 then return "<depth>" end
-    local tv = typeof(v)
-    if tv == "Instance" then return v:GetFullName() .. " [" .. v.ClassName .. "]" end
+    if typeof(v) == "Instance" then
+        return v:GetFullName() .. " [" .. v.ClassName .. "]"
+    end
     if type(v) ~= "table" then return tostring(v) end
+
     local parts = {}
-    for k,val in pairs(v) do
-        if #parts >= 20 then table.insert(parts,"...") break end
-        table.insert(parts, tostring(k).."="..describeValue(val, depth+1))
+    for k, val in pairs(v) do
+        if #parts >= 20 then
+            table.insert(parts, "...")
+            break
+        end
+        table.insert(parts, tostring(k) .. "=" .. describeValue(val, depth + 1))
     end
     table.sort(parts)
-    return "{"..table.concat(parts,", ").."}"
+    return "{" .. table.concat(parts, ", ") .. "}"
 end
 
 local function watchRemoteEvents()
-    for _,con in ipairs(S.connections) do pcall(function() con:Disconnect() end) end
+    for _, con in ipairs(S.connections) do
+        pcall(function() con:Disconnect() end)
+    end
     table.clear(S.connections)
-    local net=RepStorage:FindFirstChild("NetworkComm")
-    if not net then emit("NetworkComm missing") return end
-    local wanted = {
+
+    local net = RepStorage:FindFirstChild("NetworkComm")
+    if not net then
+        emit("NetworkComm missing")
+        return
+    end
+
+    local wantedSet = {}
+    for _, n in ipairs({
         "IslandCreated_Signal","IslandDataChanged_Signal","IslandEnded_Signal",
-        "IslandRemoved_Signal","IslandRemoved_Signal","IslandAdded_Signal",
-        "RaidBossSpawned_Signal","RaidEnded_Signal","ReturnToMain_Signal",
-        "Ready_Signal","RetryRaid_Method","ReturnToLobby_Method",
-        "LoadRaid_Method","RetryRaid_Method"
-    }
-    local wantedSet={}
-    for _,n in ipairs(wanted) do wantedSet[n]=true end
+        "IslandRemoved_Signal","IslandAdded_Signal","RaidBossSpawned_Signal",
+        "RaidEnded_Signal","ReturnToMain_Signal","Ready_Signal"
+    }) do
+        wantedSet[n] = true
+    end
 
     local function attach(obj)
         if not wantedSet[obj.Name] then return end
-        if obj:IsA("RemoteEvent") then
-            local con=obj.OnClientEvent:Connect(function(...)
-                local args={...}
-                local parts={}
-                for i,v in ipairs(args) do parts[i]=describeValue(v) end
-                emit("EVENT "..obj:GetFullName().." | "..table.concat(parts," | "))
-            end)
-            table.insert(S.connections,con)
-            emit("WATCHING "..obj:GetFullName())
-        end
+        if not obj:IsA("RemoteEvent") then return end
+
+        local con = obj.OnClientEvent:Connect(function(...)
+            local args = {...}
+            local parts = {}
+            for i, v in ipairs(args) do
+                parts[i] = describeValue(v)
+            end
+            emit("EVENT " .. obj:GetFullName() .. " | " .. table.concat(parts, " | "))
+        end)
+
+        table.insert(S.connections, con)
+        emit("WATCHING " .. obj:GetFullName())
     end
 
-    for _,d in ipairs(net:GetDescendants()) do attach(d) end
-end
-
-local function emit(msg)
-    print("[RaidDebug] " .. tostring(msg))
-    table.insert(S.logs, os.date("%H:%M:%S") .. " | " .. tostring(msg))
-    if #S.logs > S.maxLogs then table.remove(S.logs, 1) end
-    if S.gui and S.gui.log then
-        S.gui.log.Text = table.concat(S.logs, "\n")
+    for _, d in ipairs(net:GetDescendants()) do
+        attach(d)
     end
 end
 
@@ -278,11 +292,11 @@ function S.Start()
     S.running = true
     watchRemoteEvents()
     emit("Monitor started")
+
     S.thread = task.spawn(function()
         while S.running do
             local ok, err = pcall(function()
-                local rows = snapshot()
-                diffSnapshot(rows)
+                diffSnapshot(snapshot())
             end)
             if not ok then emit("SCAN ERROR: " .. tostring(err)) end
             task.wait(S.interval)
@@ -292,7 +306,9 @@ end
 
 function S.Stop()
     S.running = false
-    for _,con in ipairs(S.connections) do pcall(function() con:Disconnect() end) end
+    for _, con in ipairs(S.connections) do
+        pcall(function() con:Disconnect() end)
+    end
     table.clear(S.connections)
     emit("Monitor stopped")
 end
@@ -332,7 +348,7 @@ function S.CreateUI()
     info.Position = UDim2.fromOffset(10, 40)
     info.BackgroundTransparency = 1
     info.TextWrapped = true
-    info.Text = "Diagnostic only: observes queue, raid place, bosses, UI text and raid-related remotes. No raid/retry actions are sent."
+    info.Text = "Diagnostic only: observes queue, raid place, bosses, UI text and raid lifecycle events. No raid/retry actions are sent."
     info.TextSize = 11
     info.TextXAlignment = Enum.TextXAlignment.Left
     info.Parent = root
