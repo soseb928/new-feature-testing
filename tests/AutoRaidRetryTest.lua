@@ -31,7 +31,8 @@ local State = {
     retryDelay = 1.0,
     queueDelay = 2.0,
     difficulty = 5,
-    configId = "RaidMegumi",
+    configId = "Megumi",
+    modifiers = { Hardcore = true, Weaken = true },
     connections = {},
     gui = nil,
     log = {},
@@ -60,13 +61,13 @@ local function invokeQueue(reason)
 
     State.lastQueue = os.clock()
     State.busy = true
-    log("QUEUE request | ConfigID=" .. State.configId .. " | Difficulty=" .. State.difficulty .. " | reason=" .. tostring(reason))
+    log("QUEUE request | ConfigID=" .. State.configId .. " | Difficulty=" .. State.difficulty .. " | Modifiers=Hardcore,Weaken | reason=" .. tostring(reason))
 
     local ok, result = pcall(function()
         return CreateIslandQueue:InvokeServer({
             Difficulty = State.difficulty,
             ConfigID = State.configId,
-            Modifiers = {},
+            Modifiers = State.modifiers,
         })
     end)
 
@@ -199,7 +200,7 @@ local function start()
     attach()
 
     log("STARTED | server-validated queue/retry controller")
-    log("CONFIG | RaidMegumi / Difficulty 5")
+    log("CONFIG | Megumi / Difficulty 5 / Hardcore+Weaken")
 
     task.spawn(function()
         task.wait(0.5)
