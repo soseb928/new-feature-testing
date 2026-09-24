@@ -1,6 +1,6 @@
 -- NexusPlay Auto Raid Test v3
--- TESTING ONLY: detects BossID/Difficulty and resolves ConfigID from known game-side identifiers.
--- Never falls back to an unrelated raid. Retry remains delegated to Nexus Hub.
+-- TESTING ONLY: auto-detects the current raid's RaidID/BossID and Difficulty.
+-- It does not hardcode Jogo/Megumi/Gojo. Retry remains delegated to Nexus Hub.
 -- Uses only the game's normal CreateIslandQueue_Method.
 
 local Players = game:GetService("Players")
@@ -18,10 +18,8 @@ local LobbyRemovedSignal = RaidsService:FindFirstChild("LobbyRemoved_Signal")
 
 local ENABLED = true
 local QUEUE_DELAY = 4
-local RESOLVE_WAIT = 5
 
 local currentRaidId = nil
-local currentConfigId = nil
 local currentBossId = nil
 local currentDifficulty = nil
 local currentModifiers = {}
@@ -90,7 +88,43 @@ local function scanRaidData(data, source)
     return false
 end
 
-local function normalize(s)\n    return string.lower(tostring(s or "")):gsub("[^%w]", "")\nend\n\nlocal function resolveConfigId()\n    local boss = normalize(currentBossId)\n    local candidates = {}\n\n    -- Only accept a ConfigID when it is explicitly discoverable from the current game state.\n    -- RaidID is authoritative when present.\n    if currentRaidId and currentRaidId ~= "" then\n        return currentRaidId, "RaidID"\n    end\n\n    -- Known boss/config pairs from Nexus Hub. These are mappings, not defaults for unknown raids.\n    local known = {\n        megumi = "Megumi",\n        jogo = "Jogo",\n        yuta = "Yuta",\n        choso = "Choso",\n        sukuna = "Sukuna",\n        toji = "Toji",\n        maki = "Maki",\n        awakenedtoji = "AToji",\n        awakenedgojo = "AGojo",\n        gojo = "AGojo",\n        judge = "Judge",\n        starrage = "StarRage",\n        yuki = "StarRage",\n        lightning = "AKashimo",\n        awakenedlightninggod = "AKashimo",\n        cursecalamity = "CurseCalamity",\n    }\n\n    local cfg = known[boss]\n    if cfg then return cfg, "BossIDMap" end\n\n    return nil, "unresolved"\nend\n\nlocal function raidLabel()
+local function normalize(s)
+    return string.lower(tostring(s or "")):gsub("[^%w]", "")
+end
+
+local function resolveConfigId()
+    if currentRaidId and currentRaidId ~= "" then
+        return currentRaidId, "RaidID"
+    end
+
+    local known = {
+        megumi = "Megumi",
+        jogo = "Jogo",
+        yuta = "Yuta",
+        choso = "Choso",
+        sukuna = "Sukuna",
+        toji = "Toji",
+        maki = "Maki",
+        awakenedtoji = "AToji",
+        awakenedgojo = "AGojo",
+        gojo = "AGojo",
+        judge = "Judge",
+        starrage = "StarRage",
+        yuki = "StarRage",
+        lightning = "AKashimo",
+        awakenedlightninggod = "AKashimo",
+        cursecalamity = "CurseCalamity",
+    }
+
+    local cfg = known[normalize(currentBossId)]
+    if cfg then
+        return cfg, "BossIDMap"
+    end
+
+    return nil, "unresolved"
+end
+
+local function raidLabel()
     return currentRaidId or currentBossId or "UNKNOWN"
 end
 
@@ -100,15 +134,17 @@ local function queueDetectedRaid(reason)
         log("QUEUE SKIP | no RaidDataUpdated scan available yet")
         return false
     end
-    if not currentRaidId then
-        log("QUEUE SKIP | RaidID not detected")
-        return false
-    end
     if currentDifficulty == nil then
         log("QUEUE SKIP | Difficulty not detected")
         return false
     end
     if os.clock() - lastQueueAt < QUEUE_DELAY then return false end
+
+    local resolved, source = resolveConfigId()
+    if not resolved then
+        log("QUEUE SKIP | ConfigID unresolved | BossID=" .. tostring(currentBossId) .. " | RaidID=" .. tostring(currentRaidId))
+        return false
+    end
 
     queueBusy = true
     lastQueueAt = os.clock()
@@ -121,8 +157,10 @@ local function queueDetectedRaid(reason)
 
     log(
         "QUEUE | reason=" .. tostring(reason)
-        .. " | scanned RaidID=" .. tostring(currentRaidId)\n        .. " | ConfigID=" .. tostring(resolved)\n        .. " | ConfigSource=" .. tostring(source)
+        .. " | scanned RaidID=" .. tostring(currentRaidId)
         .. " | BossID=" .. tostring(currentBossId)
+        .. " | ConfigID=" .. tostring(resolved)
+        .. " | ConfigSource=" .. tostring(source)
         .. " | Difficulty=" .. tostring(currentDifficulty)
     )
 
@@ -180,9 +218,10 @@ if LobbyRemovedSignal and LobbyRemovedSignal:IsA("RemoteEvent") then
     end)
 end
 
-log("STARTED | Auto Raid Test v3")
-log("MODE | scan BossID/Difficulty, then resolve ConfigID safely")
-log("MODE | no unrelated-raid fallback")
+log("STARTED | Auto Raid Test v2")
+log("MODE | scan RaidID/BossID/Difficulty automatically from RaidDataUpdated")
+log("MODE | resolve ConfigID from RaidID or detected BossID")
+log("MODE | no hardcoded Jogo/Megumi/Gojo")
 log("RETRY | delegated to existing Nexus Hub retry")
 
 task.spawn(function()
