@@ -11129,7 +11129,7 @@ function NexusBuildShopTab(tab)
     NEXUS_LV.NexusShopStatusLoop()
 end
 
-NEXUS_LOADER_URL = "https://raw.githubusercontent.com/soseb928/nexus-hub/refs/heads/main/NexusPlay_Hub.lua"
+NEXUS_LOADER_URL = "https://raw.githubusercontent.com/soseb928/new-feature-testing/e58f9cb0e9813f6bd8a7dbb3b484d6527599f7ec/tests/NexusPlay_Hub_ZeninEliteTest.lua"
 AutoExecOn       = false
 AutoExecDelayOn  = false
 AutoExecDelaySec = 0
@@ -13072,7 +13072,7 @@ end)
 
 do
 
-    local LIB_URL = "https://raw.githubusercontent.com/soseb928/nexus-hub/refs/heads/main/NexusPlay_UI_Library.lua"
+    local LIB_URL = "https://raw.githubusercontent.com/soseb928/new-feature-testing/main/NexusPlay_UI_Library.lua"
 
     NEXUS_TAB_IMAGES = {
         ["Farm"]          = "6022668911",
