@@ -8934,14 +8934,24 @@ function nexusRaidEngine(cfg)
         if not force and (now - queueT) < RAID_QUEUE_GAP then return false end
         queueT = now
         clearIsle()
-        pcall(function()
-            NEXUS_LV.CreateIslandQueue:InvokeServer({
-
+        local ok, result = pcall(function()
+            return NEXUS_LV.CreateIslandQueue:InvokeServer({
                 Difficulty = nexusRaidDiff(cfg),
                 ConfigID = cfg.config,
                 Modifiers = {},
             })
         end)
+        if cfg.config == "ZeninElite" then
+            print(string.format("[Zenin Elite Test] QUEUE | ok=%s | result=%s | ConfigID=%s | Difficulty=%s",
+                tostring(ok), tostring(result), tostring(cfg.config), tostring(nexusRaidDiff(cfg))))
+            if not ok then
+                print("[Zenin Elite Test] QUEUE ERROR | "..tostring(result))
+            elseif result == false then
+                print("[Zenin Elite Test] QUEUE REJECTED | server returned false")
+            else
+                print("[Zenin Elite Test] QUEUE ACCEPTED | room creation request accepted")
+            end
+        end
         return true
     end
 
