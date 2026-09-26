@@ -8936,7 +8936,7 @@ function nexusRaidEngine(cfg)
         clearIsle()
         local ok, result = pcall(function()
             return NEXUS_LV.CreateIslandQueue:InvokeServer({
-                Difficulty = nexusRaidDiff(cfg),
+                Difficulty = (cfg.config == "ZeninElite") and 3 or nexusRaidDiff(cfg),
                 ConfigID = cfg.config,
                 Modifiers = {},
             })
